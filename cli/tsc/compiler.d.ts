@@ -1,11 +1,10 @@
-// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2021 the Deno authors. All rights reserved. MIT license.
 
 // Contains types that can be used to validate and check `99_main_compiler.js`
 
 import * as _ts from "../dts/typescript";
 
 declare global {
-  // deno-lint-ignore no-namespace
   namespace ts {
     var libs: string[];
     var libMap: Map<string, string>;
@@ -22,7 +21,6 @@ declare global {
     var performance: Performance;
   }
 
-  // deno-lint-ignore no-namespace
   namespace ts {
     export = _ts;
   }
@@ -34,22 +32,40 @@ declare global {
 
   interface DenoCore {
     // deno-lint-ignore no-explicit-any
-    jsonOpSync<T>(name: string, params: T): any;
+    opSync<T>(name: string, params: T): any;
     ops(): void;
-    print(msg: string): void;
-    registerErrorClass(name: string, Ctor: typeof Error): void;
+    print(msg: string, stderr: bool): void;
+    registerErrorClass(
+      name: string,
+      Ctor: typeof Error,
+      // deno-lint-ignore no-explicit-any
+      ...args: any[]
+    ): void;
   }
 
   type LanguageServerRequest =
     | ConfigureRequest
-    | GetSyntacticDiagnosticsRequest
-    | GetSemanticDiagnosticsRequest
-    | GetSuggestionDiagnosticsRequest
-    | GetQuickInfoRequest
-    | GetDocumentHighlightsRequest
-    | GetReferencesRequest
+    | FindRenameLocationsRequest
+    | GetAsset
+    | GetCodeFixes
+    | GetCombinedCodeFix
+    | GetCompletionDetails
+    | GetCompletionsRequest
     | GetDefinitionRequest
-    | GetCompletionsRequest;
+    | GetDiagnosticsRequest
+    | GetDocumentHighlightsRequest
+    | GetEncodedSemanticClassifications
+    | GetImplementationRequest
+    | GetNavigationTree
+    | GetOutliningSpans
+    | GetQuickInfoRequest
+    | GetReferencesRequest
+    | GetSignatureHelpItemsRequest
+    | GetSmartSelectionRange
+    | GetSupportedCodeFixes
+    | PrepareCallHierarchy
+    | ProvideCallHierarchyIncomingCalls
+    | ProvideCallHierarchyOutgoingCalls;
 
   interface BaseLanguageServerRequest {
     id: number;
@@ -62,23 +78,60 @@ declare global {
     compilerOptions: Record<string, any>;
   }
 
-  interface GetSyntacticDiagnosticsRequest extends BaseLanguageServerRequest {
-    method: "getSyntacticDiagnostics";
+  interface FindRenameLocationsRequest extends BaseLanguageServerRequest {
+    method: "findRenameLocations";
+    specifier: string;
+    position: number;
+    findInStrings: boolean;
+    findInComments: boolean;
+    providePrefixAndSuffixTextForRename: boolean;
+  }
+
+  interface GetAsset extends BaseLanguageServerRequest {
+    method: "getAsset";
     specifier: string;
   }
 
-  interface GetSemanticDiagnosticsRequest extends BaseLanguageServerRequest {
-    method: "getSemanticDiagnostics";
+  interface GetCodeFixes extends BaseLanguageServerRequest {
+    method: "getCodeFixes";
     specifier: string;
+    startPosition: number;
+    endPosition: number;
+    errorCodes: string[];
   }
 
-  interface GetSuggestionDiagnosticsRequest extends BaseLanguageServerRequest {
-    method: "getSuggestionDiagnostics";
+  interface GetCombinedCodeFix extends BaseLanguageServerRequest {
+    method: "getCombinedCodeFix";
     specifier: string;
+    // deno-lint-ignore ban-types
+    fixId: {};
   }
 
-  interface GetQuickInfoRequest extends BaseLanguageServerRequest {
-    method: "getQuickInfo";
+  interface GetCompletionDetails extends BaseLanguageServerRequest {
+    method: "getCompletionDetails";
+    args: {
+      specifier: string;
+      position: number;
+      name: string;
+      source?: string;
+      data?: unknown;
+    };
+  }
+
+  interface GetCompletionsRequest extends BaseLanguageServerRequest {
+    method: "getCompletions";
+    specifier: string;
+    position: number;
+    preferences: ts.GetCompletionsAtPositionOptions;
+  }
+
+  interface GetDiagnosticsRequest extends BaseLanguageServerRequest {
+    method: "getDiagnostics";
+    specifiers: string[];
+  }
+
+  interface GetDefinitionRequest extends BaseLanguageServerRequest {
+    method: "getDefinition";
     specifier: string;
     position: number;
   }
@@ -90,22 +143,75 @@ declare global {
     filesToSearch: string[];
   }
 
+  interface GetEncodedSemanticClassifications
+    extends BaseLanguageServerRequest {
+    method: "getEncodedSemanticClassifications";
+    specifier: string;
+    span: ts.TextSpan;
+  }
+
+  interface GetImplementationRequest extends BaseLanguageServerRequest {
+    method: "getImplementation";
+    specifier: string;
+    position: number;
+  }
+
+  interface GetNavigationTree extends BaseLanguageServerRequest {
+    method: "getNavigationTree";
+    specifier: string;
+  }
+
+  interface GetOutliningSpans extends BaseLanguageServerRequest {
+    method: "getOutliningSpans";
+    specifier: string;
+  }
+
+  interface GetQuickInfoRequest extends BaseLanguageServerRequest {
+    method: "getQuickInfo";
+    specifier: string;
+    position: number;
+  }
+
   interface GetReferencesRequest extends BaseLanguageServerRequest {
     method: "getReferences";
     specifier: string;
     position: number;
   }
 
-  interface GetDefinitionRequest extends BaseLanguageServerRequest {
-    method: "getDefinition";
+  interface GetSignatureHelpItemsRequest extends BaseLanguageServerRequest {
+    method: "getSignatureHelpItems";
+    specifier: string;
+    position: number;
+    options: ts.SignatureHelpItemsOptions;
+  }
+
+  interface GetSmartSelectionRange extends BaseLanguageServerRequest {
+    method: "getSmartSelectionRange";
     specifier: string;
     position: number;
   }
 
-  interface GetCompletionsRequest extends BaseLanguageServerRequest {
-    method: "getCompletions";
+  interface GetSupportedCodeFixes extends BaseLanguageServerRequest {
+    method: "getSupportedCodeFixes";
+  }
+
+  interface PrepareCallHierarchy extends BaseLanguageServerRequest {
+    method: "prepareCallHierarchy";
     specifier: string;
     position: number;
-    preferences: ts.UserPreferences;
+  }
+
+  interface ProvideCallHierarchyIncomingCalls
+    extends BaseLanguageServerRequest {
+    method: "provideCallHierarchyIncomingCalls";
+    specifier: string;
+    position: number;
+  }
+
+  interface ProvideCallHierarchyOutgoingCalls
+    extends BaseLanguageServerRequest {
+    method: "provideCallHierarchyOutgoingCalls";
+    specifier: string;
+    position: number;
   }
 }

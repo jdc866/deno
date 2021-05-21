@@ -1,7 +1,4 @@
-// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
-// To run this test manually:
-//   cd test_plugin
-//   ../target/debug/deno run --unstable --allow-plugin tests/test.js debug
+// Copyright 2018-2021 the Deno authors. All rights reserved. MIT license.
 
 use std::process::Command;
 use test_util::deno_cmd;
@@ -36,8 +33,26 @@ fn basic() {
     println!("stdout {}", stdout);
     println!("stderr {}", stderr);
   }
+  println!("{:?}", output.status);
   assert!(output.status.success());
-  let expected = "Hello from plugin.\nzero_copy[0]: test\nzero_copy[1]: 123\nzero_copy[2]: cba\nPlugin Sync Response: test\nHello from plugin.\nzero_copy[0]: test\nzero_copy[1]: 123\nPlugin Async Response: test\n";
+  let expected = "\
+    Plugin rid: 3\n\
+    Hello from sync plugin op.\n\
+    args: TestArgs { val: \"1\" }\n\
+    zero_copy: test\n\
+    op_test_sync returned: test\n\
+    Hello from async plugin op.\n\
+    args: TestArgs { val: \"1\" }\n\
+    zero_copy: 123\n\
+    op_test_async returned: test\n\
+    Hello from resource_table.add plugin op.\n\
+    TestResource rid: 4\n\
+    Hello from resource_table.get plugin op.\n\
+    TestResource get value: hello plugin!\n\
+    Hello from sync plugin op.\n\
+    args: TestArgs { val: \"1\" }\n\
+    Ops completed count is correct!\n\
+    Ops dispatched count is correct!\n";
   assert_eq!(stdout, expected);
   assert_eq!(stderr, "");
 }

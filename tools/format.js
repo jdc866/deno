@@ -1,9 +1,9 @@
 #!/usr/bin/env -S deno run --unstable --allow-write --allow-read --allow-run
-// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2021 the Deno authors. All rights reserved. MIT license.
 import { getPrebuiltToolPath, getSources, join, ROOT_PATH } from "./util.js";
 
 async function dprint() {
-  const configFile = join(ROOT_PATH, ".dprintrc.json");
+  const configFile = join(ROOT_PATH, ".dprint.json");
   const execPath = getPrebuiltToolPath("dprint");
   console.log("dprint");
   const p = Deno.run({

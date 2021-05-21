@@ -1,26 +1,35 @@
-// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2021 the Deno authors. All rights reserved. MIT license.
 
 use deno_core::error::custom_error;
-use deno_core::json_op_sync;
+use deno_core::op_sync;
+use deno_core::serde::Deserialize;
 use deno_core::serde_json;
 use deno_core::serde_json::json;
+use deno_core::serde_json::Value;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
+use deno_runtime::deno_console;
+use deno_runtime::deno_crypto;
+use deno_runtime::deno_fetch;
+use deno_runtime::deno_file;
+use deno_runtime::deno_url;
+use deno_runtime::deno_web;
+use deno_runtime::deno_webgpu;
+use deno_runtime::deno_websocket;
+use deno_runtime::deno_webstorage;
 use regex::Regex;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 
+// TODO(bartlomieju): this module contains a lot of duplicated
+// logic with `runtime/build.rs`, factor out to `deno_core`.
 fn create_snapshot(
   mut js_runtime: JsRuntime,
   snapshot_path: &Path,
   files: Vec<PathBuf>,
 ) {
-  deno_web::init(&mut js_runtime);
-  deno_fetch::init(&mut js_runtime);
-  deno_crypto::init(&mut js_runtime);
   // TODO(nayeemrmn): https://github.com/rust-lang/cargo/issues/3946 to get the
   // workspace root.
   let display_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
@@ -43,14 +52,6 @@ fn create_snapshot(
   println!("Snapshot written to: {} ", snapshot_path.display());
 }
 
-fn create_runtime_snapshot(snapshot_path: &Path, files: Vec<PathBuf>) {
-  let js_runtime = JsRuntime::new(RuntimeOptions {
-    will_snapshot: true,
-    ..Default::default()
-  });
-  create_snapshot(js_runtime, snapshot_path, files);
-}
-
 #[derive(Debug, Deserialize)]
 struct LoadArgs {
   /// The fully qualified specifier that should be loaded.
@@ -64,8 +65,15 @@ fn create_compiler_snapshot(
 ) {
   // libs that are being provided by op crates.
   let mut op_crate_libs = HashMap::new();
+  op_crate_libs.insert("deno.console", deno_console::get_declaration());
+  op_crate_libs.insert("deno.url", deno_url::get_declaration());
   op_crate_libs.insert("deno.web", deno_web::get_declaration());
+  op_crate_libs.insert("deno.file", deno_file::get_declaration());
   op_crate_libs.insert("deno.fetch", deno_fetch::get_declaration());
+  op_crate_libs.insert("deno.webgpu", deno_webgpu::get_declaration());
+  op_crate_libs.insert("deno.websocket", deno_websocket::get_declaration());
+  op_crate_libs.insert("deno.webstorage", deno_webstorage::get_declaration());
+  op_crate_libs.insert("deno.crypto", deno_crypto::get_declaration());
 
   // ensure we invalidate the build properly.
   for (_, path) in op_crate_libs.iter() {
@@ -125,6 +133,15 @@ fn create_compiler_snapshot(
     "esnext.weakref",
   ];
 
+  let path_dts = cwd.join("dts");
+  // ensure we invalidate the build properly.
+  for name in libs.iter() {
+    println!(
+      "cargo:rerun-if-changed={}",
+      path_dts.join(format!("lib.{}.d.ts", name)).display()
+    );
+  }
+
   // create a copy of the vector that includes any op crate libs to be passed
   // to the JavaScript compiler to build into the snapshot
   let mut build_libs = libs.clone();
@@ -133,7 +150,6 @@ fn create_compiler_snapshot(
   }
 
   let re_asset = Regex::new(r"asset:/{3}lib\.(\S+)\.d\.ts").expect("bad regex");
-  let path_dts = cwd.join("dts");
   let build_specifier = "asset:///bootstrap.ts";
 
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
@@ -142,7 +158,7 @@ fn create_compiler_snapshot(
   });
   js_runtime.register_op(
     "op_build_info",
-    json_op_sync(move |_state, _args, _bufs| {
+    op_sync(move |_state, _args: Value, _: ()| {
       Ok(json!({
         "buildSpecifier": build_specifier,
         "libs": build_libs,
@@ -153,7 +169,7 @@ fn create_compiler_snapshot(
   // files, but a slightly different implementation at build time.
   js_runtime.register_op(
     "op_load",
-    json_op_sync(move |_state, args, _bufs| {
+    op_sync(move |_state, args, _: ()| {
       let v: LoadArgs = serde_json::from_value(args)?;
       // we need a basic file to send to tsc to warm it up.
       if v.specifier == build_specifier {
@@ -196,6 +212,8 @@ fn create_compiler_snapshot(
       }
     }),
   );
+  js_runtime.sync_ops_cache();
+
   create_snapshot(js_runtime, snapshot_path, files);
 }
 
@@ -221,7 +239,7 @@ fn git_commit_hash() -> String {
     .output()
   {
     if output.status.success() {
-      std::str::from_utf8(&output.stdout[..7])
+      std::str::from_utf8(&output.stdout[..40])
         .unwrap()
         .to_string()
     } else {
@@ -236,8 +254,8 @@ fn git_commit_hash() -> String {
 }
 
 fn main() {
-  // Don't build V8 if "cargo doc" is being run. This is to support docs.rs.
-  if env::var_os("RUSTDOCFLAGS").is_some() {
+  // Skip building from docs.rs.
+  if env::var_os("DOCS_RS").is_some() {
     return;
   }
 
@@ -247,12 +265,40 @@ fn main() {
   println!("cargo:rustc-env=TS_VERSION={}", ts_version());
   println!("cargo:rustc-env=GIT_COMMIT_HASH={}", git_commit_hash());
   println!(
+    "cargo:rustc-env=DENO_CONSOLE_LIB_PATH={}",
+    deno_console::get_declaration().display()
+  );
+  println!(
+    "cargo:rustc-env=DENO_URL_LIB_PATH={}",
+    deno_url::get_declaration().display()
+  );
+  println!(
     "cargo:rustc-env=DENO_WEB_LIB_PATH={}",
     deno_web::get_declaration().display()
   );
   println!(
+    "cargo:rustc-env=DENO_FILE_LIB_PATH={}",
+    deno_file::get_declaration().display()
+  );
+  println!(
     "cargo:rustc-env=DENO_FETCH_LIB_PATH={}",
     deno_fetch::get_declaration().display()
+  );
+  println!(
+    "cargo:rustc-env=DENO_WEBGPU_LIB_PATH={}",
+    deno_webgpu::get_declaration().display()
+  );
+  println!(
+    "cargo:rustc-env=DENO_WEBSOCKET_LIB_PATH={}",
+    deno_websocket::get_declaration().display()
+  );
+  println!(
+    "cargo:rustc-env=DENO_WEBSTORAGE_LIB_PATH={}",
+    deno_webstorage::get_declaration().display()
+  );
+  println!(
+    "cargo:rustc-env=DENO_CRYPTO_LIB_PATH={}",
+    deno_crypto::get_declaration().display()
   );
 
   println!("cargo:rustc-env=TARGET={}", env::var("TARGET").unwrap());
@@ -265,11 +311,7 @@ fn main() {
   let o = PathBuf::from(env::var_os("OUT_DIR").unwrap());
 
   // Main snapshot
-  let runtime_snapshot_path = o.join("CLI_SNAPSHOT.bin");
   let compiler_snapshot_path = o.join("COMPILER_SNAPSHOT.bin");
-
-  let js_files = get_js_files("rt");
-  create_runtime_snapshot(&runtime_snapshot_path, js_files);
 
   let js_files = get_js_files("tsc");
   create_compiler_snapshot(&compiler_snapshot_path, js_files, &c);

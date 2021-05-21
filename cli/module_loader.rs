@@ -1,8 +1,7 @@
-// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2021 the Deno authors. All rights reserved. MIT license.
 
 use crate::import_map::ImportMap;
 use crate::module_graph::TypeLib;
-use crate::permissions::Permissions;
 use crate::program_state::ProgramState;
 use deno_core::error::AnyError;
 use deno_core::futures::future::FutureExt;
@@ -11,6 +10,7 @@ use deno_core::ModuleLoadId;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSpecifier;
 use deno_core::OpState;
+use deno_runtime::permissions::Permissions;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -22,6 +22,10 @@ pub struct CliModuleLoader {
   /// import map file will be resolved and set.
   pub import_map: Option<ImportMap>,
   pub lib: TypeLib,
+  /// The initial set of permissions used to resolve the static imports in the
+  /// worker. They are decoupled from the worker (dynamic) permissions since
+  /// read access errors must be raised based on the parent thread permissions.
+  pub root_permissions: Permissions,
   pub program_state: Arc<ProgramState>,
 }
 
@@ -38,11 +42,15 @@ impl CliModuleLoader {
     Rc::new(CliModuleLoader {
       import_map,
       lib,
+      root_permissions: Permissions::allow_all(),
       program_state,
     })
   }
 
-  pub fn new_for_worker(program_state: Arc<ProgramState>) -> Rc<Self> {
+  pub fn new_for_worker(
+    program_state: Arc<ProgramState>,
+    permissions: Permissions,
+  ) -> Rc<Self> {
     let lib = if program_state.flags.unstable {
       TypeLib::UnstableDenoWorker
     } else {
@@ -52,6 +60,7 @@ impl CliModuleLoader {
     Rc::new(CliModuleLoader {
       import_map: None,
       lib,
+      root_permissions: permissions,
       program_state,
     })
   }
@@ -67,7 +76,7 @@ impl ModuleLoader for CliModuleLoader {
   ) -> Result<ModuleSpecifier, AnyError> {
     // FIXME(bartlomieju): hacky way to provide compatibility with repl
     let referrer = if referrer.is_empty() && self.program_state.flags.repl {
-      "<unknown>"
+      deno_core::DUMMY_SPECIFIER
     } else {
       referrer
     };
@@ -81,8 +90,7 @@ impl ModuleLoader for CliModuleLoader {
       }
     }
 
-    let module_specifier =
-      ModuleSpecifier::resolve_import(specifier, referrer)?;
+    let module_specifier = deno_core::resolve_import(specifier, referrer)?;
 
     Ok(module_specifier)
   }
@@ -94,26 +102,14 @@ impl ModuleLoader for CliModuleLoader {
     maybe_referrer: Option<ModuleSpecifier>,
     _is_dynamic: bool,
   ) -> Pin<Box<deno_core::ModuleSourceFuture>> {
-    let module_specifier = module_specifier.to_owned();
-    let module_url_specified = module_specifier.to_string();
+    let module_specifier = module_specifier.clone();
     let program_state = self.program_state.clone();
 
     // NOTE: this block is async only because of `deno_core`
     // interface requirements; module was already loaded
     // when constructing module graph during call to `prepare_load`.
-    let fut = async move {
-      let compiled_module = program_state
-        .fetch_compiled_module(module_specifier, maybe_referrer)?;
-      Ok(deno_core::ModuleSource {
-        // Real module name, might be different from initial specifier
-        // due to redirections.
-        code: compiled_module.code,
-        module_url_specified,
-        module_url_found: compiled_module.name,
-      })
-    };
-
-    fut.boxed_local()
+    async move { program_state.load(module_specifier, maybe_referrer) }
+      .boxed_local()
   }
 
   fn prepare_load(
@@ -129,8 +125,9 @@ impl ModuleLoader for CliModuleLoader {
     let maybe_import_map = self.import_map.clone();
     let state = op_state.borrow();
 
-    // The permissions that should be applied to any dynamically imported module
+    let root_permissions = self.root_permissions.clone();
     let dynamic_permissions = state.borrow::<Permissions>().clone();
+
     let lib = self.lib.clone();
     drop(state);
 
@@ -140,6 +137,7 @@ impl ModuleLoader for CliModuleLoader {
         .prepare_module_load(
           specifier,
           lib,
+          root_permissions,
           dynamic_permissions,
           is_dynamic,
           maybe_import_map,

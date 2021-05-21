@@ -1,7 +1,8 @@
-// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2021 the Deno authors. All rights reserved. MIT license.
 
 use deno_core::serde_json;
 use deno_core::serde_json::json;
+use log::debug;
 use std::collections::BTreeMap;
 use std::io::Result;
 use std::path::PathBuf;

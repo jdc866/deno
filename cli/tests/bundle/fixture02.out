@@ -1,15 +1,12 @@
+const c = "c";
+class C {
+}
 const mod = function() {
-    const c = "c";
-    const c1 = c;
-    class C {
-    }
-    const __default = C;
     return {
-        c,
-        default: C
+        default: C,
+        c: c
     };
 }();
-const c = mod;
 const b = "b";
 console.log(b);
 console.log(mod);

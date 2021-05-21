@@ -73,11 +73,9 @@ Some see it as unconventional that:
 
 However:
 
-1. This is the most logical way of distinguishing between runtime flags and
-   script arguments.
-2. This is the most ergonomic way of distinguishing between runtime flags and
-   script arguments.
-3. This is, in fact, the same behaviour as that of any other popular runtime.
+1. This is the most logical and ergonomic way of distinguishing between runtime
+   flags and script arguments.
+2. This is, in fact, the same behaviour as that of any other popular runtime.
    - Try `node -c index.js` and `node index.js -c`. The first will only do a
      syntax check on `index.js` as per Node's `-c` flag. The second will
      _execute_ `index.js` with `-c` passed to `require("process").argv`.
@@ -93,6 +91,10 @@ You can supply the `--watch` flag to `deno run` to enable the built in file
 watcher. When Deno starts up with this flag it watches the entrypoint, and all
 local files the entrypoint statically imports. Whenever one of these files is
 changed on disk, the program will automatically be restarted.
+
+```
+deno run --watch main.ts
+```
 
 ### Integrity flags
 
